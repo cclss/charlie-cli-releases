@@ -7,7 +7,7 @@ Release binaries for [charlie-cli](https://github.com/cclss/charlie-cli).
 ```bash
 # macOS (Homebrew)
 brew tap cclss/tap
-brew install charlie
+brew install charlie-cli
 
 # Linux / macOS (curl)
 curl -fsSL https://raw.githubusercontent.com/cclss/charlie-cli-releases/master/install.sh | sh
