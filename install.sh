@@ -2,7 +2,11 @@
 set -eu
 
 # charlie-cli installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/cclss/charlie-cli-releases/master/install.sh | sh
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/cclss/charlie-cli-releases/master/install.sh | sh
+#   CHANNEL=dev curl -fsSL ... | sh
+#   VERSION=dev-latest curl -fsSL ... | sh
+#   VERSION=2.3.0 curl -fsSL ... | sh
 
 REPO="cclss/charlie-cli-releases"
 BINARY="charlie"
@@ -24,29 +28,92 @@ main() {
     esac
 
     VERSION="${VERSION:-}"
-    if [ -z "$VERSION" ]; then
-        VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' \
-            | sed -E 's/.*"v([^"]+)".*/\1/')"
+    CHANNEL="${CHANNEL:-}"
+
+    # VERSION=dev-latest or VERSION=staging-latest → resolve via release tag
+    if echo "$VERSION" | grep -qE '^(dev|staging)-latest$'; then
+        RELEASE_TAG="$VERSION"
+        download_from_release "$RELEASE_TAG"
+        return
     fi
 
-    if [ -z "$VERSION" ]; then
-        err "could not determine latest version"
+    # VERSION=latest → resolve via GitHub latest release
+    if [ "$VERSION" = "latest" ]; then
+        RELEASE_TAG="latest"
+        download_from_release "$RELEASE_TAG"
+        return
     fi
 
-    FILENAME="charlie_${VERSION}_${OS}_${ARCH}.tar.gz"
-    URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
+    # Explicit version number (e.g. VERSION=2.3.0)
+    if [ -n "$VERSION" ]; then
+        FILENAME="charlie_${VERSION}_${OS}_${ARCH}.tar.gz"
+        URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
+        do_install "$URL" "$VERSION"
+        return
+    fi
 
-    echo "Installing charlie v${VERSION} (${OS}/${ARCH})..."
+    # CHANNEL-based resolution
+    case "${CHANNEL:-stable}" in
+        stable)
+            VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+                | grep '"tag_name"' \
+                | sed -E 's/.*"v([^"]+)".*/\1/')"
+            if [ -z "$VERSION" ]; then
+                err "could not determine latest version"
+            fi
+            FILENAME="charlie_${VERSION}_${OS}_${ARCH}.tar.gz"
+            URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
+            do_install "$URL" "$VERSION"
+            ;;
+        dev|staging)
+            download_from_release "${CHANNEL}-latest"
+            ;;
+        *)
+            err "unknown channel: ${CHANNEL} (use stable, dev, or staging)"
+            ;;
+    esac
+}
+
+download_from_release() {
+    RELEASE_TAG="$1"
+    ASSET_PATTERN="charlie_.*_${OS}_${ARCH}\\.tar\\.gz"
+
+    RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${RELEASE_TAG}")" \
+        || err "release '${RELEASE_TAG}' not found"
+
+    ASSET_URL="$(echo "$RELEASE_JSON" \
+        | grep -o '"browser_download_url":[^,]*' \
+        | grep -E "$ASSET_PATTERN" \
+        | head -1 \
+        | sed -E 's/"browser_download_url":\s*"(.*)"/\1/')"
+
+    if [ -z "$ASSET_URL" ]; then
+        err "no matching asset for ${OS}/${ARCH} in release '${RELEASE_TAG}'"
+    fi
+
+    DISPLAY_VERSION="$(echo "$RELEASE_JSON" \
+        | grep '"body"' \
+        | sed -E 's/.*Latest [a-z]+ build: ([^"\\]+).*/\1/' \
+        | head -1)"
+    [ -z "$DISPLAY_VERSION" ] && DISPLAY_VERSION="$RELEASE_TAG"
+
+    do_install "$ASSET_URL" "$DISPLAY_VERSION"
+}
+
+do_install() {
+    URL="$1"
+    DISPLAY_VERSION="$2"
+
+    echo "Installing charlie ${DISPLAY_VERSION} (${OS}/${ARCH})..."
 
     TMPDIR="$(mktemp -d)"
     trap 'rm -rf "$TMPDIR"' EXIT
 
-    if ! curl -fsSL "$URL" -o "${TMPDIR}/${FILENAME}"; then
+    if ! curl -fsSL "$URL" -o "${TMPDIR}/archive.tar.gz"; then
         err "failed to download ${URL}"
     fi
 
-    tar -xzf "${TMPDIR}/${FILENAME}" -C "$TMPDIR"
+    tar -xzf "${TMPDIR}/archive.tar.gz" -C "$TMPDIR"
 
     if [ -w "$INSTALL_DIR" ]; then
         mv "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
@@ -58,9 +125,8 @@ main() {
     chmod +x "${INSTALL_DIR}/${BINARY}"
 
     echo ""
-    echo "charlie v${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
+    echo "charlie ${DISPLAY_VERSION} installed to ${INSTALL_DIR}/${BINARY}"
 
-    # Check if INSTALL_DIR is in PATH
     case ":${PATH}:" in
         *":${INSTALL_DIR}:"*) ;;
         *)
