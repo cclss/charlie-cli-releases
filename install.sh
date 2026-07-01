@@ -85,7 +85,7 @@ download_from_release() {
         | grep -o '"browser_download_url":[^,]*' \
         | grep -E "$ASSET_PATTERN" \
         | head -1 \
-        | sed -E 's/"browser_download_url":\s*"(.*)"/\1/')"
+        | sed -E 's/"browser_download_url": *"(.*)"/\1/')"
 
     if [ -z "$ASSET_URL" ]; then
         err "no matching asset for ${OS}/${ARCH} in release '${RELEASE_TAG}'"
