@@ -30,8 +30,8 @@ main() {
     VERSION="${VERSION:-}"
     CHANNEL="${CHANNEL:-}"
 
-    # VERSION=dev-latest or VERSION=staging-latest → resolve via release tag
-    if echo "$VERSION" | grep -qE '^(dev|staging)-latest$'; then
+    # VERSION=dev-latest, staging-latest, frontier-latest → resolve via release tag
+    if echo "$VERSION" | grep -qE '^(dev|staging|frontier)-latest$'; then
         RELEASE_TAG="$VERSION"
         download_from_release "$RELEASE_TAG"
         return
@@ -65,11 +65,11 @@ main() {
             URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
             do_install "$URL" "$VERSION"
             ;;
-        dev|staging)
+        dev|staging|frontier)
             download_from_release "${CHANNEL}-latest"
             ;;
         *)
-            err "unknown channel: ${CHANNEL} (use stable, dev, or staging)"
+            err "unknown channel: ${CHANNEL} (use stable, dev, staging, or frontier)"
             ;;
     esac
 }
