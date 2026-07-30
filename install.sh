@@ -30,6 +30,22 @@ main() {
     VERSION="${VERSION:-}"
     CHANNEL="${CHANNEL:-}"
 
+    # Most direct form: the caller already knows exactly which release and which
+    # file it wants, so nothing has to be looked up. With ASSET_NAME the whole
+    # download URL is known up front and no API call is made at all -- which also
+    # makes this the only form that keeps working when a release's asset names
+    # do not follow the usual pattern. Without it the asset still has to be
+    # discovered from the release.
+    if [ -n "${RELEASE_TAG:-}" ]; then
+        if [ -n "${ASSET_NAME:-}" ]; then
+            URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${ASSET_NAME}"
+            do_install "$URL" "$RELEASE_TAG"
+        else
+            download_from_release "$RELEASE_TAG"
+        fi
+        return
+    fi
+
     # VERSION=dev-latest, staging-latest, frontier-latest → resolve via release tag
     if echo "$VERSION" | grep -qE '^(dev|staging|frontier)-latest$'; then
         RELEASE_TAG="$VERSION"
@@ -46,8 +62,17 @@ main() {
 
     # Explicit version number (e.g. VERSION=2.3.0)
     if [ -n "$VERSION" ]; then
+        # Stable releases are tagged with a leading `v` (`v2.3.0`) while channel
+        # builds are tagged with the version verbatim
+        # (`dev.0ebe295.20260730-051458`). Prefixing unconditionally sent every
+        # channel build to a tag that does not exist, so the only way to install
+        # one was through an alias -- and that costs an API call per attempt.
+        case "$VERSION" in
+            [0-9]*) RELEASE_TAG="v${VERSION}" ;;
+            *) RELEASE_TAG="${VERSION}" ;;
+        esac
         FILENAME="charlie_${VERSION}_${OS}_${ARCH}.tar.gz"
-        URL="https://github.com/${REPO}/releases/download/v${VERSION}/${FILENAME}"
+        URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${FILENAME}"
         do_install "$URL" "$VERSION"
         return
     fi
